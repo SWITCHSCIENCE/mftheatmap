@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html class="" lang="en">
+  <meta>
+    <meta charset="utf-8">
+    <script src="d3.js" charset="utf-8"></script>
+  </meta>
+  <style type="text/css">
+    .axis path,
+    .axis line {
+       fill: none;
+       stroke: black;
+       shape-rendering: crispEdges;
+    }
+    .axis text {
+       font-family: sans-serif;
+       font-size: 10px;
+    }
+    .grid {
+       fill: none;
+       stroke: rgba(0, 0, 0, 0.1);
+       stroke-width: 1;
+    }
+    text.temperatures {
+       font-family: sans-serif;
+       font-size: 12px;
+       fill: white;
+       letter-spacing: 1.5;
+       text-anchor: middle;
+       dominant-baseline: central;
+    }
+  </style>
+  <body>
+
+<script>
+
+// 会場画像のファイル名
+var image_url = "floor.png";
+
+// 会場画像のピクセルと会場でのセンサーの位置を合わせる。
+var default_id_locate = {
+  "1A": {"x": 1060, "y": 760},
+  "2A": {"x": 940, "y": 760},
+  "3A": {"x": 1200, "y": 1200},
+  "4A": {"x": 170, "y": 680},
+  "1B": {"x": 770, "y": 760},
+  "2C": {"x": 750, "y": 970},
+  "38": {"x": 170, "y": 420},
+  "30": {"x": 360, "y": 1140},
+  "3C": {"x": 610, "y": 970},
+  "FF": {"x": 1220, "y": 760}
+};
+
+// 温度の円の径の最大最小
+var min_r = 40;
+var max_r = 80;
+
+// 温度の最大／最小値（実際には取得した温度でダイナミックに書き換わります。）
+var min_temp = 500;
+var max_temp = -500;
+
+var scale_temp = d3.scale.linear().domain([min_temp, max_temp]).range([0, 1]);
+
+// 画像の縦横ピクセル数を取り出す。
+var img = new Image();
+img.onload = function(){
+  // 画像が読み込めたらsvgを用意してそこに画像を表示する
+  draw_svg(img);
+};
+img.src = image_url;
+
+// svgの中に置くことになる'g'
+var container;
+
+// svgを用意する
+function draw_svg() {
+  var w_img = img.width;
+  var h_img = img.height;
+
+  var padding_img = 100;
+
+  // svgの大きさ
+  var w = w_img + padding_img * 2;
+  var h = h_img + padding_img * 2;
+
+  // 上と横のスケール用パディング
+  var padding_axis_top = 10;
+  var padding_axis_left = 10;
+
+  // svgをbodyに置く
+  var svg = d3.select("body")
+              .append("svg")
+              .attr("width", w)
+              .attr("height", h)
+              .append("g")
+              .attr("transform", "translate(" + padding_img  + "," + padding_img + ")")
+              .call(zoom);
+
+  // scaleはピクセルのまんま
+  // domainとrangeは同じ
+  var xscale = d3.scale.linear()
+                       .domain([0, w])
+                       .range([0, w]);
+
+  var yscale = d3.scale.linear()
+                       .domain([0, h])
+                       .range([0, h]);
+
+  var xaxis = d3.svg.axis()
+                    .scale(xscale)
+                    .orient("bottom");
+
+  var yaxis = d3.svg.axis()
+                    .scale(yscale)
+                    .orient("right");
+
+  // マウスのイベントを受け取る枠を用意
+  var rect = svg.append("rect")
+                .attr("width", w)
+                .attr("height", h)
+                .style("fill", "none")
+                .style("pointer-events", "all");
+
+  container = svg.append("g");
+
+  // 背景画像
+  container.append("svg:image")
+      .attr("xlink:href", image_url)
+      .attr("x", padding_img)
+      .attr("y", padding_img)
+      .attr("height", h_img)
+      .attr("width", w_img);
+
+  // 格子状の線
+  container.append("g")
+      .selectAll("line")
+      .data(d3.range(0, w, 10))
+      .enter()
+      .append("line")
+      .attr("class", "grid")
+      .attr("x1", function(d) { return d; })
+      .attr("y1", 0)
+      .attr("x2", function(d) { return d; })
+      .attr("y2", h);
+
+  container.append("g")
+      .selectAll("line")
+      .data(d3.range(0, h, 10))
+      .enter()
+      .append("line")
+      .attr("class", "grid")
+      .attr("x1", 0)
+      .attr("y1", function(d) { return d; })
+      .attr("x2", w)
+      .attr("y2", function(d) { return d; });
+
+  // 定規
+  container.append("g")
+      .attr("class", "axis")
+      .attr("transform", "translate(0, " + padding_axis_top + ")")
+      .call(xaxis);
+
+  container.append("g")
+      .attr("class", "axis")
+      .attr("transform", "translate(" + padding_axis_left + ", 0)")
+      .call(yaxis);
+
+}
+
+function json_url() {
+  var now = Math.floor( new Date().getTime());
+  now = 1438424690166; // <= テストデータを取り出すための指定なので本番では削除
+  var time_range = 300000;
+// 最新の温度情報の書かれたjsonのURL
+  device_json_url = "http://CHANGETHISHOSTNAME.net/data?start=" + (now - time_range) + "&end=" + now;
+  console.log(device_json_url);
+  return device_json_url;
+}
+
+function zoomed() {
+  container.attr("transform", "translate(" + d3.event.translate + ")scale(" + d3.event.scale + ")");
+}
+
+var zoom = d3.behavior.zoom()
+                      .scaleExtent([0.1, 10])
+                      .on("zoom", zoomed);
+
+// jsonを読み込む
+function load_data() {
+  /*
+  jsonの内容は以下のような配列となっている
+  [
+    {
+      "_id": "55b323810c417a1d00363a67",
+      "topic": "iot-2/type/STM431J/id/04017952/evt/status/fmt/json",
+      "payload": {
+        "d": {
+          "sensor": "36",
+          "hum": 52,
+          "temp": 25.28,
+          "time": 1437803393026
+        }
+      },
+      "deviceId": "04017952",
+      "deviceType": "STM431J",
+      "eventType": "status",
+      "format": "json",
+      "_msgid": "453c0dd6.bac3f4"
+    }
+  ]
+  */
+  d3.json(json_url(), function(error, data) {
+      //最新のレコードの時刻だけ取り出す
+      var latest = select_latest(data);
+      var device_temp_json = [];
+      for(var i in data) {
+        var item = data[i];
+        if(latest[item.payload.d.sensor] == item.payload.d.time) {
+          // 最新のレコードなら表示するデータに利用する
+          var temp_data = {};
+          temp_data["id"] = item.payload.d.sensor;
+          if(default_id_locate[item.payload.d.sensor] == undefined) {
+            // 位置情報の無いセンサーば0,0に表示
+            console.log("There is no location data for " + item.payload.d.sensor);
+            temp_data["x"] = 0;
+            temp_data["y"] = 0;
+          } else {
+            temp_data["x"] = default_id_locate[item.payload.d.sensor].x;
+            temp_data["y"] = default_id_locate[item.payload.d.sensor].y;
+          }
+          temp_data["value"] = item.payload.d.temp;
+          device_temp_json = device_temp_json.concat(temp_data);
+        }
+      }
+      set_temp_range(device_temp_json);
+      draw_temp(device_temp_json);
+  });
+}
+
+//最新の時刻のレコードを確認して記録しておく
+function select_latest(data) {
+  var latest = [];
+  for(var i in data) {
+    var item = data[i];
+    if(!(item.payload.d.sensor in latest)) {
+      // センサーのIDがオブジェクトにない
+      latest[item.payload.d.sensor] = item.payload.d.time;
+    } else if(latest[item.payload.d.sensor] < item.payload.d.time) {
+      // センサーの時刻が古い
+      latest[item.payload.d.sensor] = item.payload.d.time;
+    }
+  }
+  return latest;
+}
+
+// 温度レンジを取り出す（色や大きさの変化をつけたいので最大、最小を得る）
+function set_temp_range(data) {
+  for(var i in data) {
+    var item = data[i];
+    if(item.value < min_temp) {
+        min_temp = item.value;
+    }
+    if(max_temp < item.value) {
+        max_temp = item.value;
+    }
+  }
+  scale_temp = d3.scale.linear().domain([min_temp, max_temp]).range([0, 1]);
+}
+
+// 温度の円を描く
+function draw_temp(data) {
+    // 丸を描く
+    container.selectAll("circle")
+          .data(data)
+          .enter()
+          .append("circle")
+          .attr("fill", function(d) {
+              // オレンジから赤の間のどこかの色で塗る
+              var color_scaler = d3.interpolateRgb("orange", "red");
+              return color_scaler(scale_temp(d.value));
+          })
+          .attr("cx", function(d) {
+              return d.x;
+          })
+          .attr("cy", function(d) {
+              return d.y;
+          })
+          .attr("r", function(d) {
+              return min_r + scale_temp(d.value) * (max_r - min_r);
+          });
+    // ラベルをつける
+    container.selectAll("text.temperatures")
+          .data(data)
+          .enter()
+          .append("text")
+          .attr("class", "temperatures")
+          .text(function(d) {
+            return d.value + "℃ (" + d.id + ")";
+          })
+          .attr("x", function(d) {
+            return d.x;
+          })
+          .attr("y", function(d) {
+            return d.y;
+          });
+};
+
+// 60秒毎にjsonを読み込む
+setInterval('load_data()', 60000);
+
+// json読み込む
+load_data();
+
+// あまり素敵ではないけど、温度の円をフェードイン、アウトさせる
+setInterval(function () {
+  container.selectAll("circle")
+            .transition().duration(1500).style("opacity", 0.3)
+            .transition().duration(1500).style("opacity", 1)
+  }, 3000);
+
+
+
+</script>
+  </body>
+</html>
+
